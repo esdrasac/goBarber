@@ -19,6 +19,10 @@ class UserController {
       provider,
     });
   }
+
+  async update(req, res) {
+    res.json({ message: 'Rota update' });
+  }
 }
 
 module.exports = new UserController();
