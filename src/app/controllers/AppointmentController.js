@@ -1,15 +1,26 @@
 const Yup = require('yup');
-const { startOfHour, parseISO, isBefore } = require('date-fns');
+const {
+  startOfHour, parseISO, isBefore, format, subHours,
+} = require('date-fns');
+const pt = require('date-fns/locale/pt');
 
 const User = require('../models/User');
 const File = require('../models/File');
 const Appointment = require('../models/Appointment');
+const Notification = require('../schemas/Notification');
+
+const CancellationMail = require('../jobs/CancellationMail');
+const Queue = require('../../lib/Queue');
 
 class AppointmentController {
   async index(req, res) {
+    const { page = 1 } = req.query;
+
     const appointment = await Appointment.findAll({
       where: { user_id: req.userId, canceled_at: null },
       order: ['date'],
+      limit: 20,
+      offset: (page - 1) * 20,
       attributes: ['id', 'date'],
       include: [
         {
@@ -47,10 +58,15 @@ class AppointmentController {
     });
 
     if (!checkProvider) {
-      return res.status(400)
+      return res.status(401)
         .json({ error: 'You can only create appointments with providers' });
     }
 
+    if (req.userId === req.body.provider_id) {
+      return res.status(401).json({ error: 'Service providers cannot schedule with themselves' });
+    }
+
+    // Check for past dates
     const hourStart = startOfHour(parseISO(date));
 
     if (isBefore(hourStart, new Date())) {
@@ -65,6 +81,7 @@ class AppointmentController {
       },
     });
 
+    // Check date is Available
     if (checkAvailability) {
       return res.status(400).json({ error: 'Appointment date is not available' });
     }
@@ -73,6 +90,52 @@ class AppointmentController {
       user_id: req.userId,
       provider_id,
       date,
+    });
+
+    // Notify service provider
+    const user = await User.findByPk(req.userId);
+    const formatedDate = format(
+      hourStart,
+      "'dia' dd 'de' MMMM', às' H:mm'h'",
+      { locale: pt },
+    );
+    await Notification.create({
+      content: `${user.name} agendou um horario com você ${formatedDate}`,
+      user: provider_id,
+    });
+
+    return res.json(appointment);
+  }
+
+  async delete(req, res) {
+    const appointment = await Appointment.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          as: 'provider',
+          attributes: ['name', 'email'],
+        },
+      ],
+    });
+
+    if (appointment.user_id !== req.userId) {
+      return res.status(401).json({
+        error: 'You do not have permission to cancel this appointment',
+      });
+    }
+
+    const dateWithSub = subHours(appointment.date, 2);
+
+    if (isBefore(dateWithSub, new Date())) {
+      return res.status(401).json({ error: 'You can only cancel appointments two hours in advance' });
+    }
+
+    appointment.canceled_at = new Date();
+
+    await appointment.save();
+
+    Queue.add(CancellationMail.key, {
+      appointment,
     });
 
     return res.json(appointment);
