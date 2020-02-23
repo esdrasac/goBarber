@@ -12,6 +12,8 @@ const Notification = require('../schemas/Notification');
 const CancellationMail = require('../jobs/CancellationMail');
 const Queue = require('../../lib/Queue');
 
+const Mail = require('../../lib/Mail');
+
 class AppointmentController {
   async index(req, res) {
     const { page = 1 } = req.query;
@@ -134,9 +136,16 @@ class AppointmentController {
 
     await appointment.save();
 
-    Queue.add(CancellationMail.key, {
-      appointment,
+    await Mail.sendMail({
+      to: `${appointment.provider.name} <${appointment.provider.email}>`,
+      sbject: 'Agendamento Cancelado',
+      text: 'Você tem um novo cancelamento',
     });
+
+
+    // await Queue.add(CancellationMail.key, {
+    //   appointment,
+    // });
 
     return res.json(appointment);
   }
