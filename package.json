@@ -11,7 +11,7 @@
     "bcryptjs": "^2.4.3",
     "bee-queue": "^1.2.3",
     "date-fns": "^2.0.0-beta.5",
-    "express": "^4.17.1",
+    "express": "^4.17.3",
     "express-handlebars": "^3.1.0",
     "jsonwebtoken": "^8.5.1",
     "mongoose": "^5.8.11",
